@@ -1,0 +1,232 @@
+---
+title: "exercise-12"
+author: "Riley N Derby"
+date: "2024-04-09"
+output: html_document
+---
+
+
+```{r}
+library(tidyverse)
+library(dplyr)
+```
+
+read in mammal dataset
+```{r}
+f <- "https://raw.githubusercontent.com/difiore/ada-2024-datasets/main/Mammal_lifehistories_v2.txt"
+d <- read_tsv(f, col_names = TRUE)
+glimpse(d)
+str(d)
+```
+
+
+step 1: Replace all values of -999 (the authors’ code for missing data) with NA.
+```{r}
+d <- mutate_all(d, ~ifelse(. == -999, NA, .))
+```
+
+step 2: Drop the variables litter size and refs.
+```{r}
+d <- d %>%
+  select(-c('litter size', refs))
+str(d)
+```
+
+step 3:Log transform all of the other numeric variables.
+
+```{r}
+d <- d %>% mutate(
+  LogMass = log(`mass(g)`),
+  LogGestation = log(`gestation(mo)`),
+  LogNewborn = log(`newborn(g)`),
+  LogWeaning= log(`weaning(mo)`),
+  LogWeanMass = log(`wean mass(g)`),
+  LogAFR= log(`AFR(mo)`),
+  LogMaxLife= log(`max. life(mo)`))
+
+
+```
+
+step 4: Regress the (now log transformed) age [gestation(mo), weaning(mo), AFR(mo) (age at first reproduction), and max. life(mo) (maximum lifespan)] and mass [newborn(g) and wean mass(g)] variables on (now log transformed) overall body mass(g) and add the residuals to the dataframe as new variables (relGest, relWean, relAFR, relLife, relNewbornMass, and relWeaningMass).
+
+```{r}
+m <- lm(data = d, LogMass ~ LogGestation + LogNewborn + LogWeaning + LogWeanMass + LogAFR + LogMaxLife, na.action = na.exclude)
+summary(m)
+
+relGest <- resid(lm(LogMass ~ LogGestation, data = d, na.action = na.exclude))
+relWean <- resid(lm(LogMass ~ LogWeaning, data = d, na.action = na.exclude))
+relAFR <- resid(lm(LogMass ~ LogAFR, data = d, na.action = na.exclude ))
+relLife <- resid(lm(LogMass ~ LogMaxLife, data = d, na.action = na.exclude))
+relNewbornMass <- resid(lm(LogMass ~ LogNewborn, data = d, na.action = na.exclude))
+relWeaningMass <- resid(lm(LogMass ~ LogWeanMass, data = d, na.action = na.exclude))
+
+d$relGest <- relGest
+d$relWean <- relWean
+d$relAFR <- relAFR
+d$relLife <- relLife
+d$relNewbornMass <- relNewbornMass
+d$relWeaningMass <- relWeaningMass
+```
+
+step 5: Plot residuals of max lifespan (relLife) in relation to Order. Which mammalian orders have the highest residual lifespan?
+```{r}
+## sometimes, I like flipping the axes to get a better look... which is what i did here
+ggplot(data = d, aes(x = relLife, y = order)) +
+  geom_boxplot() +
+  theme_minimal() 
+```
+Sirenia and Cetacea have highest residual lifespan
+
+
+
+Plot residuals of newborn mass (relNewbornMass) in relation to Order. Which mammalian orders have the have highest residual newborn mass?
+```{r}
+ggplot(data = d, aes(x = relNewbornMass, y = order)) +
+  geom_boxplot() +
+  theme_minimal() 
+```
+Carnivora have highest residual newborn mass
+
+
+Plot residuals of weaning mass (relWeaningMass) in relation to Order. Which mammalian orders have the have highest relative weaning mass?
+```{r}
+ggplot(data = d, aes(x = relWeaningMass, y = order)) +
+  geom_boxplot() +
+  theme_minimal() 
+```
+Philodota and Lagomorpha have some of the highest, but there are some very high outliars in Carnivora and Rodentia
+
+
+
+step 6: Run models and a model selection process to evaluate what (now log transformed) variables best predict each of the two response variables, max. life(mo) and AFR(mo), from the set of the following predictors: gestation(mo), newborn(g), weaning(mo), wean mass(g), litters/year, and overall body mass(g).
+
+lets do max lifespan model first
+```{r}
+d_life <- d %>%
+  drop_na(LogMaxLife, LogMass, LogGestation, LogNewborn, LogWeaning, LogWeanMass, `litters/year`)
+```
+
+
+```{r}
+#start with
+
+m_null <- lm(data = d_life, LogMaxLife ~ 1)
+
+
+##add in highest F value to new update each time
+add1(m_null, scope = .~. + LogMass + LogGestation + LogNewborn + LogWeaning + LogWeanMass + `litters/year`, test = "F")
+m1 <- update(m_null, formula = .~. + LogGestation)
+summary(m1)
+
+add1(m1, scope = .~. + LogMass + LogNewborn + LogWeaning + LogWeanMass + `litters/year`, test = "F")
+m2<- update(m1, formula = .~. + `litters/year`)
+summary(m2)
+
+add1(m2, scope = .~. + LogMass + LogNewborn + LogWeaning + LogWeanMass , test = "F")
+m3<- update(m2, formula = .~. + LogMass)
+summary(m3)
+
+add1(m3, scope = .~. + LogNewborn + LogWeaning + LogWeanMass, test = "F")
+m4<- update(m3, formula = .~. + LogWeaning)
+summary(m4)
+
+```
+lifespan is best predicted by 1.gestation length, 2.litters per year, 3.mass, and then 4. weaning age
+
+
+now AFR
+```{r}
+d_AFR <- d %>%
+  drop_na(LogAFR, LogMass, LogGestation, LogNewborn, LogWeaning, LogWeanMass, `litters/year`)
+
+#start with
+
+m_null2 <- lm(data = d_AFR, LogAFR ~ 1)
+
+
+##add in highest F value to new update each time
+add1(m_null2, scope = .~. + LogMass + LogGestation + LogNewborn + LogWeaning + LogWeanMass + `litters/year`, test = "F")
+m1 <- update(m_null, formula = .~. + LogGestation)
+summary(m1)
+
+add1(m1, scope = .~. + LogMass + LogNewborn + LogWeaning + LogWeanMass + `litters/year`, test = "F")
+m2<- update(m1, formula = .~. + `litters/year`)
+summary(m2)
+
+add1(m2, scope = .~. + LogMass + LogNewborn + LogWeaning + LogWeanMass , test = "F")
+m3<- update(m2, formula = .~. + LogWeaning)
+summary(m3)
+
+add1(m3, scope = .~. + LogNewborn + LogMass + LogWeanMass, test = "F")
+m4<- update(m3, formula = .~. + LogMass)
+summary(m4)
+
+```
+the predictors of age at first reproduction are 1. gestation length, 2. litters per year, 3. weaning age, 4. mass
+
+For each of the two response variables, indicate what is the best model overall based on AICc and how many models have a delta AICc of 4 or less.
+
+```{r}
+library(MASS)
+m_full <- lm(LogMaxLife ~ LogMass + LogGestation + LogNewborn + LogWeaning + LogWeanMass + `litters/year`, data = d_life)
+s <- stepAIC(m_full, scope = .~., direction = 'both', trace = T)
+
+
+m_full2 <- lm(LogAFR ~ LogMass + LogGestation + LogNewborn + LogWeaning + LogWeanMass + `litters/year`, data = d_AFR)
+s2 <- stepAIC(m_full2, scope = .~., direction = 'both', trace = T)
+```
+What variables, if any, appear in all of this set of “top” models?
+
+For max lifespan, the best model includes logmass, loggestation, logweaning, and litters per year
+
+For age first reproduction the best model includes the same 4 predictors
+
+
+Calculate and plot the model-averaged coefficients and their CIs across this set of top models.
+
+```{r}
+library(MuMIn)
+m_full <- lm(LogMaxLife ~ LogMass + LogGestation + LogNewborn + LogWeaning + LogWeanMass + `litters/year`, data = d_life, na.action = na.fail)
+
+mods <- dredge(m_full)
+
+mods.res <- get.models(mods, subset = T)
+mods.res$'24'
+
+mods.res <- get.models(mods, subset = delta <= 4) #returns top models where delta aicc <= 4
+
+mods.avg <- summary(model.avg(mods, subset = delta <= 4, fit = T))# averages coeff for top models where delta.aicc <=4
+
+
+mods.avg <- summary(model.avg(mods, subset = cumsum(weight) <= 0.99, fit = T))# cumsum of weights of all models will eqyal 1.... averages coeff for top models where cumulative weight is <=0.99
+
+confint(mods.avg)
+
+plot(mods.avg, full = T)
+plot(mods.avg, full = F)
+
+#####afr model
+m_full2 <- lm(LogAFR ~ LogMass + LogGestation + LogNewborn + LogWeaning + LogWeanMass + `litters/year`, data = d_AFR, na.action = na.fail)
+
+mods2 <- dredge(m_full2)
+
+mods.res2 <- get.models(mods2, subset = T)
+mods.res2$'24'
+
+mods.res2 <- get.models(mods2, subset = delta <= 4) #returns top models where delta aicc <= 4
+
+mods.avg2 <- summary(model.avg(mods2, subset = delta <= 4, fit = T))# averages coeff for top models where delta.aicc <=4
+
+
+mods.avg2 <- summary(model.avg(mods2, subset = cumsum(weight) <= 0.99, fit = T))# cumsum of weights of all models will eqyal 1.... averages coeff for top models where cumulative weight is <=0.99
+
+confint(mods.avg2)
+
+plot(mods.avg2, full = T)
+plot(mods.avg2, full = F)
+```
+
+for lifespan model, there are 4 models with AIC less than 4
+for AFR model, there are 5 models with AIC less than 4
+
+
